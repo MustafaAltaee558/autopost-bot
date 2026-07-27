@@ -1,0 +1,38 @@
+{
+  "users": {
+    "945699603": {
+      "telegramId": "945699603",
+      "username": "x_yoy",
+      "role": "user",
+      "status": "active",
+      "id": "945699603",
+      "first_name": "Mustafa",
+      "lastActive": "2026-07-27T15:21:59.775Z",
+      "subscription": "pro",
+      "balance": 300,
+      "connectedPlatforms": []
+    },
+    "mBy2UzNuZdwkuFEbrwmK": {
+      "telegramId": "0",
+      "firstName": "test",
+      "username": "test",
+      "clientId": "none",
+      "role": "owner",
+      "status": "active",
+      "id": "mBy2UzNuZdwkuFEbrwmK"
+    },
+    "5577389170": {
+      "id": "5577389170",
+      "username": "abo2moh",
+      "first_name": "معتز",
+      "balance": 3,
+      "subscription": "free",
+      "status": "active",
+      "connectedPlatforms": [
+        "facebook"
+      ],
+      "createdAt": "2026-07-27T14:40:02.247Z",
+      "lastActive": "2026-07-27T15:00:26.457Z"
+    }
+  }
+}
