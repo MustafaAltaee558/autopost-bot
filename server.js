@@ -77,9 +77,9 @@ app.get('/auth/facebook', (req, res) => {
 
   const serverUrl = getBaseServerUrl(req);
   const redirectUri = `${serverUrl}/auth/facebook/callback`;
-  const scope = 'email,public_profile,pages_show_list,pages_manage_posts';
+  const scope = 'public_profile,email,pages_show_list,pages_read_engagement';
 
-  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${chatId}&scope=${scope}`;
+  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${chatId}&scope=${scope}&auth_type=rerequest`;
 
   return res.redirect(authUrl);
 });
@@ -97,9 +97,9 @@ app.get('/auth/instagram', (req, res) => {
 
   const serverUrl = getBaseServerUrl(req);
   const redirectUri = `${serverUrl}/auth/instagram/callback`;
-  const scope = 'email,public_profile,pages_show_list,pages_manage_posts,instagram_basic,instagram_content_publish';
+  const scope = 'public_profile,email,pages_show_list,pages_read_engagement';
 
-  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${chatId}&scope=${scope}`;
+  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${chatId}&scope=${scope}&auth_type=rerequest`;
 
   return res.redirect(authUrl);
 });
@@ -146,8 +146,8 @@ app.get(['/auth/facebook/callback', '/auth/instagram/callback'], async (req, res
 
     const userAccessToken = longLivedData.access_token || shortLivedToken;
 
-    // 3. Fetch User's Facebook Pages & Instagram Accounts
-    const pagesUrl = `https://graph.facebook.com/v18.0/me/accounts?access_token=${userAccessToken}`;
+    // 3. Fetch User's Facebook Pages & Connected Instagram Business Accounts
+    const pagesUrl = `https://graph.facebook.com/v18.0/me/accounts?fields=name,access_token,instagram_business_account&access_token=${userAccessToken}`;
     const pagesRes = await fetch(pagesUrl);
     const pagesData = await pagesRes.json();
 
@@ -174,25 +174,17 @@ app.get(['/auth/facebook/callback', '/auth/instagram/callback'], async (req, res
       dbService.saveConnectedAccount(chatId, fbAcc);
       connectedPages.push(page.name);
 
-      // Check for attached Instagram Business Account
-      try {
-        const igCheckUrl = `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${page.access_token}`;
-        const igRes = await fetch(igCheckUrl);
-        const igData = await igRes.json();
-
-        if (igData.instagram_business_account && igData.instagram_business_account.id) {
-          const igAcc = {
-            platform: 'instagram',
-            igAccountId: igData.instagram_business_account.id,
-            pageId: page.id,
-            pageName: `${page.name} (Instagram)`,
-            accessToken: page.access_token,
-          };
-          dbService.saveConnectedAccount(chatId, igAcc);
-          connectedPages.push(`${page.name} (Instagram)`);
-        }
-      } catch (igErr) {
-        console.warn(`Could not check IG account for page ${page.id}:`, igErr.message);
+      // Check for attached Instagram Business Account directly
+      if (page.instagram_business_account && page.instagram_business_account.id) {
+        const igAcc = {
+          platform: 'instagram',
+          igAccountId: page.instagram_business_account.id,
+          pageId: page.id,
+          pageName: `${page.name} (Instagram)`,
+          accessToken: page.access_token,
+        };
+        dbService.saveConnectedAccount(chatId, igAcc);
+        connectedPages.push(`${page.name} (Instagram)`);
       }
     }
 
@@ -203,7 +195,7 @@ app.get(['/auth/facebook/callback', '/auth/instagram/callback'], async (req, res
     // Send instant Telegram notification to the user
     if (botInstance && chatId) {
       try {
-        await botInstance.telegram.sendMessage(chatId, "✅ تم ربط حسابك بنجاح! يمكنك الآن النشر تلقائياً.");
+        await botInstance.telegram.sendMessage(chatId, "✅ تم ربط الحساب بنجاح! يمكنك الآن بدء النشر التلقائي.");
       } catch (tgErr) {
         console.error('❌ Error sending Telegram notification:', tgErr.message);
       }
