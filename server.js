@@ -134,18 +134,17 @@ app.get(['/auth/facebook/callback', '/auth/instagram/callback'], async (req, res
 
     if (error || !code) {
       console.error('❌ Meta OAuth Auth Error:', error_description || error || 'No authorization code');
-      return res.send(renderOAuthResultPage(false, `إلغاء أو خطأ في التفويض: ${error_description || 'لم يتم استلام الكود'}`));
+      return res.status(400).send(`<h1>حدث خطأ أثناء الربط</h1><p>${error_description || error || 'لم يتم استلام الكود'}</p>`);
     }
 
     if (!chatId) {
       console.error('❌ State parameter missing or invalid:', chatId);
-      return res.send(renderOAuthResultPage(false, 'معرف المستخدم (chatId) غير متوفر في الاستجابة.'));
+      return res.status(400).send('<h1>حدث خطأ أثناء الربط</h1><p>معرف المستخدم (chatId) غير متوفر في الاستجابة.</p>');
     }
 
     const appId = FB_APP_ID;
     const appSecret = FB_APP_SECRET;
-    const serverUrl = getBaseServerUrl(req);
-    const redirectUri = `${serverUrl}${req.path}`;
+    const redirectUri = `https://autopost-bot.vercel.app${req.path}`;
 
     // 1. Exchange authorization code for Short-Lived Access Token
     const tokenUrl = `https://graph.facebook.com/v18.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`;
@@ -177,12 +176,12 @@ app.get(['/auth/facebook/callback', '/auth/instagram/callback'], async (req, res
 
     if (pagesData.error) {
       console.error('❌ Meta Pages Fetch Error Details:', JSON.stringify(pagesData.error, null, 2));
-      return res.send(renderOAuthResultPage(false, `خطأ في جلب الصفحات: ${pagesData.error.message}`));
+      throw new Error(`خطأ في جلب الصفحات: ${pagesData.error.message}`);
     }
 
     if (!pagesData.data || pagesData.data.length === 0) {
       console.warn('⚠️ No Facebook/Instagram pages returned for user:', chatId);
-      return res.send(renderOAuthResultPage(false, 'لم يتم العثور على صفحات فيسبوك أو إنستغرام تديرها بهذا الحساب.'));
+      throw new Error('لم يتم العثور على صفحات فيسبوك أو إنستغرام تديرها بهذا الحساب.');
     }
 
     const connectedPages = [];
@@ -219,17 +218,16 @@ app.get(['/auth/facebook/callback', '/auth/instagram/callback'], async (req, res
     // Send instant Telegram notification to the user
     if (botInstance && chatId) {
       try {
-        await botInstance.telegram.sendMessage(chatId, "✅ تم ربط الحساب بنجاح! يمكنك الآن بدء النشر التلقائي.");
+        await botInstance.telegram.sendMessage(chatId, "✅ تم ربط صفحتك وحسابك بنجاح!");
       } catch (tgErr) {
         console.error('❌ Error sending Telegram notification:', tgErr.message);
       }
     }
 
-    // Return clean elegant HTML page
-    return res.send(renderOAuthResultPage(true, "تم الربط بنجاح! يمكنك إغلاق هذه الصفحة والعودة للتليجرام."));
-  } catch (err) {
-    console.error('❌ Callback Handling Exception:', err);
-    return res.send(renderOAuthResultPage(false, `حدث خطأ أثناء إكمال التفويض: ${err.message}`));
+    return res.send('<h1>✅ تم ربط حسابك بنجاح! يمكنك إغلاق هذه الصفحة والعودة للتليجرام.</h1>');
+  } catch (error) {
+    console.error('OAuth Callback Error:', error.response?.data || error.message);
+    return res.status(500).send(`<h1>حدث خطأ أثناء الربط</h1><p>${error.message}</p>`);
   }
 });
 
