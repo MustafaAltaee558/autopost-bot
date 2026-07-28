@@ -3,46 +3,56 @@ const path = require('path');
 const { db } = require('../config/firebase');
 
 const DB_PATH = path.join(__dirname, '..', 'data', 'users.json');
-const USERS_COLLECTION = db.collection('users');
+let inMemoryStore = { users: {} };
 
 function ensureDbExists() {
-  const dir = path.dirname(DB_PATH);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  if (!fs.existsSync(DB_PATH)) {
-    fs.writeFileSync(DB_PATH, JSON.stringify({ users: {} }, null, 2), 'utf-8');
+  try {
+    const dir = path.dirname(DB_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    if (!fs.existsSync(DB_PATH)) {
+      fs.writeFileSync(DB_PATH, JSON.stringify({ users: {} }, null, 2), 'utf-8');
+    }
+  } catch (err) {
+    // Read-only filesystem (e.g. Vercel serverless environment)
   }
 }
 
 function readDb() {
   ensureDbExists();
   try {
-    const raw = fs.readFileSync(DB_PATH, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (!parsed.users) parsed.users = {};
-    return parsed;
+    if (fs.existsSync(DB_PATH)) {
+      const raw = fs.readFileSync(DB_PATH, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (!parsed.users) parsed.users = {};
+      inMemoryStore = parsed;
+      return parsed;
+    }
   } catch (err) {
-    console.error('Error reading users.json database:', err);
-    return { users: {} };
+    console.warn('⚠️ Error reading users.json database, using memory fallback:', err.message);
   }
+  return inMemoryStore;
 }
 
 function writeDb(data) {
-  ensureDbExists();
+  inMemoryStore = data;
   try {
+    ensureDbExists();
     fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2), 'utf-8');
     return true;
   } catch (err) {
-    console.error('Error writing to users.json database:', err);
-    return false;
+    // Read-only filesystem on Vercel
+    return true;
   }
 }
 
 // Save document to Firestore asynchronously
 async function saveToFirestore(userId, userData) {
+  if (!db) return;
   try {
-    await USERS_COLLECTION.doc(String(userId)).set(userData, { merge: true });
+    const usersCol = db.collection('users');
+    await usersCol.doc(String(userId)).set(userData, { merge: true });
   } catch (err) {
     console.error(`⚠️ خطأ أثناء كتابة بيانات المستخدم ${userId} في Firestore:`, err.message);
   }
@@ -50,8 +60,10 @@ async function saveToFirestore(userId, userData) {
 
 // Initial Sync from Firestore at app startup
 (async function syncFromFirestore() {
+  if (!db) return;
   try {
-    const snapshot = await USERS_COLLECTION.get();
+    const usersCol = db.collection('users');
+    const snapshot = await usersCol.get();
     const localData = readDb();
     let count = 0;
     snapshot.forEach(doc => {

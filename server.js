@@ -267,7 +267,7 @@ if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_TOKEN !== 'your_b
   try {
     botInstance = createBot(process.env.TELEGRAM_BOT_TOKEN);
 
-    // Register Webhook POST route middleware in Express
+    // Register Webhook POST route middleware in Express for Telegram updates
     app.use(botInstance.webhookCallback('/bot-webhook'));
 
     let SERVER_URL = process.env.SERVER_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
@@ -279,25 +279,20 @@ if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_TOKEN !== 'your_b
       const webhookUrl = `${SERVER_URL}/bot-webhook`;
       botInstance.telegram.setWebhook(webhookUrl)
         .then(() => console.log(`🤖 تم تسجيل Webhook بنجاح مع التليجرام: ${webhookUrl}`))
-        .catch(err => console.error('❌ خطأ أثناء ضبط Webhook:', err.message));
-    } else {
-      botInstance.launch()
-        .then(() => console.log('🤖 تم تشغيل بوت AutoPost بنجاح! (Long Polling)'))
-        .catch(err => console.error('❌ خطأ أثناء تشغيل البوت:', err));
+        .catch(err => console.warn('⚠️ خطأ أثناء ضبط Webhook:', err.message));
     }
-
-    process.once('SIGINT', () => botInstance.stop('SIGINT'));
-    process.once('SIGTERM', () => botInstance.stop('SIGTERM'));
   } catch (err) {
     console.error('❌ فشل تهيئة البوت:', err.message);
   }
 }
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`🚀 السيرفر يعمل الآن على المنفذ: http://localhost:${PORT}`);
-  console.log(`🔑 لوحة تحكم الأدمن متاحة على: http://localhost:${PORT}/admin`);
-});
+// Start Server (Only for local execution, Vercel exports app as Serverless Function)
+if (require.main === module || (!process.env.VERCEL && process.env.NODE_ENV !== 'production')) {
+  app.listen(PORT, () => {
+    console.log(`🚀 السيرفر يعمل الآن على المنفذ: http://localhost:${PORT}`);
+    console.log(`🔑 لوحة تحكم الأدمن متاحة على: http://localhost:${PORT}/admin`);
+  });
+}
 
 // -------------------------------------------------------------
 // HTML Rendering Functions
