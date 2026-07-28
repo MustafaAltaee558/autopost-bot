@@ -47,19 +47,23 @@ app.use('/auth', (req, res, next) => {
   next();
 });
 
+// Helper to get base server URL
+function getBaseServerUrl(req) {
+  let url = (process.env.SERVER_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, '')}` : '')).trim();
+  if (!url) {
+    const host = req.get('host');
+    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    url = `${protocol}://${host}`;
+  }
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = `https://${url}`;
+  }
+  return url.replace(/\/$/, '');
+}
+
 // -------------------------------------------------------------
 // Facebook / Meta OAuth 2.0 Integration Routes
 // -------------------------------------------------------------
-const META_SCOPES = [
-  'public_profile',
-  'email',
-  'pages_show_list',
-  'pages_manage_posts',
-  'instagram_business_basic',
-  'instagram_business_manage_messages',
-  'instagram_business_manage_comments'
-].join(',');
-
 app.get('/auth/facebook', (req, res) => {
   const { chatId } = req.query;
   if (!chatId) {
@@ -71,14 +75,13 @@ app.get('/auth/facebook', (req, res) => {
     return res.status(500).send('❌ FACEBOOK_APP_ID غير مضبوط في ملف .env');
   }
 
-  const host = req.get('host');
-  const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-  const redirectUri = `${protocol}://${host}/auth/facebook/callback`;
-  const state = `${chatId}_facebook`;
+  const serverUrl = getBaseServerUrl(req);
+  const redirectUri = `${serverUrl}/auth/facebook/callback`;
+  const scope = 'email,public_profile,pages_show_list,pages_manage_posts';
 
-  const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(META_SCOPES)}&state=${state}`;
+  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${chatId}&scope=${scope}`;
 
-  return res.send(renderOAuthLandingPage(authUrl, 'فيسبوك'));
+  return res.redirect(authUrl);
 });
 
 app.get('/auth/instagram', (req, res) => {
@@ -92,42 +95,36 @@ app.get('/auth/instagram', (req, res) => {
     return res.status(500).send('❌ FACEBOOK_APP_ID غير مضبوط في ملف .env');
   }
 
-  const host = req.get('host');
-  const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-  const redirectUri = `${protocol}://${host}/auth/instagram/callback`;
-  const state = `${chatId}_instagram`;
+  const serverUrl = getBaseServerUrl(req);
+  const redirectUri = `${serverUrl}/auth/instagram/callback`;
+  const scope = 'email,public_profile,pages_show_list,pages_manage_posts,instagram_basic,instagram_content_publish';
 
-  const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(META_SCOPES)}&state=${state}`;
+  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${chatId}&scope=${scope}`;
 
-  return res.send(renderOAuthLandingPage(authUrl, 'إنستغرام'));
+  return res.redirect(authUrl);
 });
 
 app.get(['/auth/facebook/callback', '/auth/instagram/callback'], async (req, res) => {
   try {
-    const { code, state: rawState, error, error_description } = req.query;
+    const { code, state: chatId, error, error_description } = req.query;
 
     if (error || !code) {
       console.error('❌ Meta OAuth Auth Error:', error_description || error || 'No authorization code');
       return res.send(renderOAuthResultPage(false, `إلغاء أو خطأ في التفويض: ${error_description || 'لم يتم استلام الكود'}`));
     }
 
-    const parts = (rawState || '').split('_');
-    const chatId = parts[0];
-    const platform = parts[1] || (req.path.includes('instagram') ? 'instagram' : 'facebook');
-
     if (!chatId) {
-      console.error('❌ State parameter missing or invalid:', rawState);
+      console.error('❌ State parameter missing or invalid:', chatId);
       return res.send(renderOAuthResultPage(false, 'معرف المستخدم (chatId) غير متوفر في الاستجابة.'));
     }
 
     const appId = process.env.FACEBOOK_APP_ID;
     const appSecret = process.env.FACEBOOK_APP_SECRET;
-    const host = req.get('host');
-    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-    const redirectUri = `${protocol}://${host}${req.path}`;
+    const serverUrl = getBaseServerUrl(req);
+    const redirectUri = `${serverUrl}${req.path}`;
 
     // 1. Exchange authorization code for Short-Lived Access Token
-    const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`;
+    const tokenUrl = `https://graph.facebook.com/v18.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`;
     const tokenRes = await fetch(tokenUrl);
     const tokenData = await tokenRes.json();
 
@@ -139,7 +136,7 @@ app.get(['/auth/facebook/callback', '/auth/instagram/callback'], async (req, res
     const shortLivedToken = tokenData.access_token;
 
     // 2. Exchange for Long-Lived Token
-    const longLivedUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${shortLivedToken}`;
+    const longLivedUrl = `https://graph.facebook.com/v18.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${shortLivedToken}`;
     const longLivedRes = await fetch(longLivedUrl);
     const longLivedData = await longLivedRes.json();
 
@@ -150,7 +147,7 @@ app.get(['/auth/facebook/callback', '/auth/instagram/callback'], async (req, res
     const userAccessToken = longLivedData.access_token || shortLivedToken;
 
     // 3. Fetch User's Facebook Pages & Instagram Accounts
-    const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}`;
+    const pagesUrl = `https://graph.facebook.com/v18.0/me/accounts?access_token=${userAccessToken}`;
     const pagesRes = await fetch(pagesUrl);
     const pagesData = await pagesRes.json();
 
@@ -179,7 +176,7 @@ app.get(['/auth/facebook/callback', '/auth/instagram/callback'], async (req, res
 
       // Check for attached Instagram Business Account
       try {
-        const igCheckUrl = `https://graph.facebook.com/v19.0/${page.id}?fields=instagram_business_account&access_token=${page.access_token}`;
+        const igCheckUrl = `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${page.access_token}`;
         const igRes = await fetch(igCheckUrl);
         const igData = await igRes.json();
 
