@@ -61,6 +61,41 @@ function getBaseServerUrl(req) {
   return url.replace(/\/$/, '');
 }
 
+// Public Privacy & Data Deletion Routes (Meta App Review)
+app.get('/privacy', (req, res) => {
+  res.send(`
+    <html>
+      <head><title>Privacy Policy</title></head>
+      <body>
+        <h1>Privacy Policy</h1>
+        <p>
+          AutoPost System collects authentication data required to connect social media accounts and publish content on behalf of users.
+        </p>
+        <p>
+          We do not sell, share, or distribute user data to third parties.
+        </p>
+        <p>
+          Users may request deletion of their data at any time.
+        </p>
+      </body>
+    </html>
+  `);
+});
+
+app.get('/delete-data', (req, res) => {
+  res.send(`
+    <html>
+      <head><title>Data Deletion</title></head>
+      <body>
+        <h1>Data Deletion Request</h1>
+        <p>
+          Users may request deletion of their stored data by contacting AutoPost support through Telegram.
+        </p>
+      </body>
+    </html>
+  `);
+});
+
 // -------------------------------------------------------------
 // Facebook / Meta OAuth 2.0 Integration Routes
 // -------------------------------------------------------------
