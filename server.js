@@ -8,6 +8,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '1234560';
 
+const FB_APP_ID = process.env.FB_APP_ID || process.env.FACEBOOK_APP_ID || '1048673357674257';
+const FB_APP_SECRET = process.env.FB_APP_SECRET || process.env.FACEBOOK_APP_SECRET || '8b262a4d44119e777d0a7a23c773366f';
+
 // Express Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -99,24 +102,16 @@ app.get('/delete-data', (req, res) => {
 // -------------------------------------------------------------
 // Facebook / Meta OAuth 2.0 Integration Routes
 // -------------------------------------------------------------
-const META_STANDARD_SCOPES = ['public_profile', 'email', 'pages_show_list', 'pages_read_engagement'].join(',');
-
 app.get('/auth/facebook', (req, res) => {
   const { chatId } = req.query;
   if (!chatId) {
     return res.status(400).send('❌ معرف المستخدم (chatId) غير متوفر.');
   }
 
-  const appId = process.env.FACEBOOK_APP_ID;
-  if (!appId) {
-    return res.status(500).send('❌ FACEBOOK_APP_ID غير مضبوط في ملف .env');
-  }
+  const redirectUri = encodeURIComponent(`https://autopost-bot.vercel.app/auth/facebook/callback`);
+  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${FB_APP_ID}&redirect_uri=${redirectUri}&state=${chatId}&scope=email,public_profile,pages_show_list,pages_manage_posts`;
 
-  const serverUrl = getBaseServerUrl(req);
-  const redirectUri = `${serverUrl}/auth/facebook/callback`;
-
-  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${chatId}&scope=${META_STANDARD_SCOPES}&auth_type=rerequest`;
-
+  console.log('Facebook Auth URL:', authUrl);
   return res.redirect(authUrl);
 });
 
@@ -126,16 +121,10 @@ app.get('/auth/instagram', (req, res) => {
     return res.status(400).send('❌ معرف المستخدم (chatId) غير متوفر.');
   }
 
-  const appId = process.env.FACEBOOK_APP_ID;
-  if (!appId) {
-    return res.status(500).send('❌ FACEBOOK_APP_ID غير مضبوط في ملف .env');
-  }
+  const redirectUri = encodeURIComponent(`https://autopost-bot.vercel.app/auth/instagram/callback`);
+  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${FB_APP_ID}&redirect_uri=${redirectUri}&state=${chatId}&scope=email,public_profile,pages_show_list,pages_manage_posts,instagram_basic,instagram_content_publish`;
 
-  const serverUrl = getBaseServerUrl(req);
-  const redirectUri = `${serverUrl}/auth/instagram/callback`;
-
-  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${chatId}&scope=${META_STANDARD_SCOPES}&auth_type=rerequest`;
-
+  console.log('Instagram Auth URL:', authUrl);
   return res.redirect(authUrl);
 });
 
@@ -153,8 +142,8 @@ app.get(['/auth/facebook/callback', '/auth/instagram/callback'], async (req, res
       return res.send(renderOAuthResultPage(false, 'معرف المستخدم (chatId) غير متوفر في الاستجابة.'));
     }
 
-    const appId = process.env.FACEBOOK_APP_ID;
-    const appSecret = process.env.FACEBOOK_APP_SECRET;
+    const appId = FB_APP_ID;
+    const appSecret = FB_APP_SECRET;
     const serverUrl = getBaseServerUrl(req);
     const redirectUri = `${serverUrl}${req.path}`;
 
