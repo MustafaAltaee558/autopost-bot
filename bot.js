@@ -446,9 +446,7 @@ function createBot(token) {
 
 // Helper to build clean OAuth URLs handling VERCEL_URL and protocols safely
 function getAuthUrl(route, chatId) {
-  let serverUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, '')}`
-    : (process.env.SERVER_URL || process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 3000}`).trim();
+  let serverUrl = (process.env.SERVER_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, '')}` : `http://localhost:${process.env.PORT || 3000}`)).trim();
 
   if (!serverUrl.startsWith('http://') && !serverUrl.startsWith('https://')) {
     serverUrl = `https://${serverUrl}`;

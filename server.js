@@ -36,6 +36,17 @@ function checkAdminAuth(req, res, next) {
   return res.send(renderLoginPage());
 }
 
+// CORS Header Middleware for /auth routes
+app.use('/auth', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // -------------------------------------------------------------
 // Facebook / Meta OAuth 2.0 Integration Routes
 // -------------------------------------------------------------
@@ -75,7 +86,7 @@ app.get('/auth/instagram', (req, res) => {
   const host = req.get('host');
   const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
   const redirectUri = `${protocol}://${host}/auth/facebook/callback`;
-  const scope = 'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement,pages_manage_posts';
+  const scope = 'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement';
   const state = `${chatId}_instagram`;
 
   const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${state}`;
