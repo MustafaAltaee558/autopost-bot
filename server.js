@@ -64,6 +64,8 @@ function getBaseServerUrl(req) {
 // -------------------------------------------------------------
 // Facebook / Meta OAuth 2.0 Integration Routes
 // -------------------------------------------------------------
+const META_STANDARD_SCOPES = ['public_profile', 'email', 'pages_show_list', 'pages_read_engagement'].join(',');
+
 app.get('/auth/facebook', (req, res) => {
   const { chatId } = req.query;
   if (!chatId) {
@@ -77,9 +79,8 @@ app.get('/auth/facebook', (req, res) => {
 
   const serverUrl = getBaseServerUrl(req);
   const redirectUri = `${serverUrl}/auth/facebook/callback`;
-  const scope = 'public_profile,email,pages_show_list,pages_read_engagement';
 
-  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${chatId}&scope=${scope}&auth_type=rerequest`;
+  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${chatId}&scope=${META_STANDARD_SCOPES}&auth_type=rerequest`;
 
   return res.redirect(authUrl);
 });
@@ -97,9 +98,8 @@ app.get('/auth/instagram', (req, res) => {
 
   const serverUrl = getBaseServerUrl(req);
   const redirectUri = `${serverUrl}/auth/instagram/callback`;
-  const scope = 'public_profile,email,pages_show_list,pages_read_engagement';
 
-  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${chatId}&scope=${scope}&auth_type=rerequest`;
+  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${chatId}&scope=${META_STANDARD_SCOPES}&auth_type=rerequest`;
 
   return res.redirect(authUrl);
 });
