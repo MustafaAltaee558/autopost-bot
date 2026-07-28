@@ -336,6 +336,47 @@ function saveConnectedAccount(id, accountData) {
   return { success: true, connectedAccounts: user.connectedAccounts };
 }
 
+/**
+ * Session State Persistence (Wizard & Drafts) linked to chatId
+ */
+function saveUserSession(id, sessionData) {
+  const localDb = readDb();
+  const key = String(id);
+  const user = localDb.users[key];
+  if (!user) return false;
+
+  user.sessionState = {
+    ...(user.sessionState || {}),
+    ...sessionData,
+    updatedAt: new Date().toISOString(),
+  };
+
+  user.lastActive = new Date().toISOString();
+  writeDb(localDb);
+  saveToFirestore(key, user);
+  return user.sessionState;
+}
+
+function getUserSession(id) {
+  const localDb = readDb();
+  const key = String(id);
+  const user = localDb.users[key];
+  return user ? (user.sessionState || null) : null;
+}
+
+function clearUserSession(id) {
+  const localDb = readDb();
+  const key = String(id);
+  const user = localDb.users[key];
+  if (!user) return false;
+
+  user.sessionState = null;
+  user.lastActive = new Date().toISOString();
+  writeDb(localDb);
+  saveToFirestore(key, user);
+  return true;
+}
+
 module.exports = {
   getAllUsers,
   getUser,
@@ -348,4 +389,8 @@ module.exports = {
   disconnectPlatform,
   saveConnectedAccount,
   removeConnectedAccount,
+  saveUserSession,
+  getUserSession,
+  clearUserSession,
 };
+

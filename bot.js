@@ -5,8 +5,67 @@ const metaService = require('./services/metaService');
 
 // State stores
 const mediaGroupStore = new Map();
-const userWizardState = new Map();
-const userDrafts = new Map();
+
+// Session Helpers using dbService (persisted in Firestore per userId)
+function serializeMediaFiles(mediaFiles) {
+  if (!Array.isArray(mediaFiles)) return [];
+  return mediaFiles.map(f => ({
+    mimeType: f.mimeType,
+    base64: Buffer.isBuffer(f.buffer) ? f.buffer.toString('base64') : (f.base64 || (typeof f.buffer === 'string' ? f.buffer : '')),
+  }));
+}
+
+function deserializeMediaFiles(mediaFiles) {
+  if (!Array.isArray(mediaFiles)) return [];
+  return mediaFiles.map(f => ({
+    mimeType: f.mimeType,
+    buffer: f.buffer && Buffer.isBuffer(f.buffer) ? f.buffer : Buffer.from(f.base64 || '', 'base64'),
+  }));
+}
+
+function getWizardState(userId) {
+  const session = dbService.getUserSession(userId);
+  if (!session || !session.wizard) return null;
+  const wizard = { ...session.wizard };
+  if (wizard.mediaFiles) {
+    wizard.mediaFiles = deserializeMediaFiles(wizard.mediaFiles);
+  }
+  return wizard;
+}
+
+function setWizardState(userId, wizardData) {
+  const dataToSave = { ...wizardData };
+  if (dataToSave.mediaFiles) {
+    dataToSave.mediaFiles = serializeMediaFiles(dataToSave.mediaFiles);
+  }
+  dbService.saveUserSession(userId, { wizard: dataToSave });
+}
+
+function clearWizardState(userId) {
+  dbService.saveUserSession(userId, { wizard: null });
+}
+
+function getDraft(userId) {
+  const session = dbService.getUserSession(userId);
+  if (!session || !session.draft) return null;
+  const draft = { ...session.draft };
+  if (draft.mediaFiles) {
+    draft.mediaFiles = deserializeMediaFiles(draft.mediaFiles);
+  }
+  return draft;
+}
+
+function setDraft(userId, draftData) {
+  const dataToSave = { ...draftData };
+  if (dataToSave.mediaFiles) {
+    dataToSave.mediaFiles = serializeMediaFiles(dataToSave.mediaFiles);
+  }
+  dbService.saveUserSession(userId, { draft: dataToSave });
+}
+
+function clearDraft(userId) {
+  dbService.saveUserSession(userId, { draft: null });
+}
 
 // Helper to fetch Telegram file as a Buffer
 async function downloadTelegramFile(bot, fileId) {
@@ -68,13 +127,7 @@ function createBot(token) {
     if (!(await ensureActiveUser(ctx))) return;
 
     const user = dbService.getUser(ctx.from.id);
-    const welcomeText = `👋 أهلاً بك يا ${ctx.from.first_name || 'صديقنا'} في منصة **AutoPost** لنشر المنشورات التسويقية! 🛒💊
-
-✨ يمكنك إنشاء وتوليد منشورات بيعية احترافية، اختيار النشر الآلي بالذكاء الاصطناعي أو اليدوي، والمعاينة والنشر المباشر على الفيسبوك والإنستغرام!
-
-📊 **رصيدك الحالي:** ${user.subscription === 'enterprise' ? 'بلا حدود ♾️' : `**${user.balance}** منشور`}
-
-اختر من القائمة أدناه للبدء:`;
+    const welcomeText = `👋 أهلاً بك يا ${ctx.from.first_name || 'صديقنا'} في منصة **AutoPost** لنشر المنشورات التسويقية! 🛒💊\n\n✨ يمكنك إنشاء وتوليد منشورات بيعية احترافية، اختيار النشر الآلي بالذكاء الاصطناعي أو اليدوي، والمعاينة والنشر المباشر على الفيسبوك والإنستغرام!\n\n📊 **رصيدك الحالي:** ${user.subscription === 'enterprise' ? 'بلا حدود ♾️' : `**${user.balance}** منشور`}\n\nاختر من القائمة أدناه للبدء:`;
 
     await ctx.reply(welcomeText, { parse_mode: 'Markdown', ...mainReplyKeyboard });
   });
@@ -89,16 +142,7 @@ function createBot(token) {
   bot.hears('📝 إنشاء منشور جديد', async (ctx) => {
     if (!(await ensureActiveUser(ctx))) return;
 
-    const text = `📸 **طريقة إنشاء منشور جديد:**
-
-1️⃣ قم بإرسال صورة، عدة صور، أو مقطع فيديو للمنتج / الخدمة.
-2️⃣ اختر طريقة إعداد النص (ذكاء اصطناعي آلي أو كتابة يدوية).
-3️⃣ ستظهر لك **معاينة للمنشور قبل النشر المباشر أونلاين على صفحتك**!
-
-⚠️ **قواعد خصم الوسائط:**
-• 1 - 2 صورة 👈 خصم 1 منشور.
-• 3 صور فما فوق 👈 خصم 2 منشورات.
-• مقطع فيديو 👈 خصم 1 منشور.`;
+    const text = `📸 **طريقة إنشاء منشور جديد:**\n\n1️⃣ قم بإرسال صورة، عدة صور، أو مقطع فيديو للمنتج / الخدمة.\n2️⃣ اختر طريقة إعداد النص (ذكاء اصطناعي آلي أو كتابة يدوية).\n3️⃣ ستظهر لك **معاينة للمنشور قبل النشر المباشر أونلاين على صفحتك**!\n\n⚠️ **قواعد خصم الوسائط:**\n• 1 - 2 صورة 👈 خصم 1 منشور.\n• 3 صور فما فوق 👈 خصم 2 منشورات.\n• مقطع فيديو 👈 خصم 1 منشور.`;
 
     await ctx.reply(text, { parse_mode: 'Markdown', ...mainReplyKeyboard });
   });
@@ -124,18 +168,7 @@ function createBot(token) {
       ? user.connectedAccounts.map(a => `• ${a.platform === 'facebook' ? '📘 فيسبوك' : '📸 إنستغرام'}: ${a.pageName}`).join('\n')
       : 'لا يوجد صفحات مربوطة بعد';
 
-    const infoText = `📊 **بيانات حسابك واشتراكك الحالي:**
-
-👤 **الاسم:** ${user.first_name}
-🆔 **ID الحساب:** \`${user.id}\`
-💎 **الباقة الحالية:** ${subName}
-📈 **حالة الاشتراك:** ${user.status === 'active' ? 'نشط ✅' : 'مجمد ❄️'}
-📦 **الرصيد المتبقي:** ${user.subscription === 'enterprise' ? 'بلا حدود ♾️' : `**${user.balance}** منشور`}
-
-🔗 **الصفحات والحسابات المربوطة:**
-${connectedAccs}
-
-💡 لتعبئة الرصيد أو تفعيل باقة جديدة، تواصل معنا عبر الواتساب: **07732446114**`;
+    const infoText = `📊 **بيانات حسابك وااشتراكك الحالي:**\n\n👤 **الاسم:** ${user.first_name}\n🆔 **ID الحساب:** \`${user.id}\` \n💎 **الباقة الحالية:** ${subName}\n📈 **حالة الاشتراك:** ${user.status === 'active' ? 'نشط ✅' : 'مجمد ❄️'}\n📦 **الرصيد المتبقي:** ${user.subscription === 'enterprise' ? 'بلا حدود ♾️' : `**${user.balance}** منشور`}\n\n🔗 **الصفحات والحسابات المربوطة:**\n${connectedAccs}\n\n💡 لتعبئة الرصيد أو تفعيل باقة جديدة، تواصل معنا عبر الواتساب: **07732446114**`;
 
     await ctx.reply(infoText, { parse_mode: 'Markdown', ...packagesInlineKeyboard });
   });
@@ -241,17 +274,17 @@ ${connectedAccs}
   // Creation Mode Callbacks: AI vs Manual
   bot.action('mode_ai', async (ctx) => {
     await ctx.answerCbQuery();
-    const state = userWizardState.get(ctx.from.id);
+    const state = getWizardState(ctx.from.id);
     if (!state) return ctx.reply('⚠️ انتهت الجلسة، يرجى إعادة إرسال الصور أو الفيديو.');
 
-    userWizardState.delete(ctx.from.id);
+    clearWizardState(ctx.from.id);
     const waitMsg = await ctx.reply('🤖 جاري صياغة المنشور التلقائي بواسطة الذكاء الاصطناعي... ⏳');
 
     try {
       const generatedPost = await aiService.generatePost(state.mediaFiles, state.caption);
       await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
 
-      userDrafts.set(ctx.from.id, {
+      setDraft(ctx.from.id, {
         cost: state.cost,
         mediaFiles: state.mediaFiles,
         rawText: generatedPost,
@@ -266,11 +299,11 @@ ${connectedAccs}
 
   bot.action('mode_manual', async (ctx) => {
     await ctx.answerCbQuery();
-    const state = userWizardState.get(ctx.from.id);
+    const state = getWizardState(ctx.from.id);
     if (!state) return ctx.reply('⚠️ انتهت الجلسة، يرجى إعادة إرسال الصور أو الفيديو.');
 
     state.step = 'awaiting_title';
-    userWizardState.set(ctx.from.id, state);
+    setWizardState(ctx.from.id, state);
 
     await ctx.reply('✍️ **الخطوة 1 من 3:** يرجى كتابة **عنوان المنشور الرئيسي**:');
   });
@@ -278,7 +311,7 @@ ${connectedAccs}
   // Manual Wizard Text Input Listener
   bot.on('text', async (ctx, next) => {
     const userId = ctx.from.id;
-    const wizard = userWizardState.get(userId);
+    const wizard = getWizardState(userId);
 
     if (wizard && wizard.step) {
       const input = ctx.message.text.trim();
@@ -286,24 +319,24 @@ ${connectedAccs}
       if (wizard.step === 'awaiting_title') {
         wizard.manualTitle = input;
         wizard.step = 'awaiting_desc';
-        userWizardState.set(userId, wizard);
+        setWizardState(userId, wizard);
         return ctx.reply('✍️ **الخطوة 2 من 3:** رائع! الآن اكتب **الوصف البيعي والتفاصيل**:');
       }
 
       if (wizard.step === 'awaiting_desc') {
         wizard.manualDesc = input;
         wizard.step = 'awaiting_tags';
-        userWizardState.set(userId, wizard);
+        setWizardState(userId, wizard);
         return ctx.reply('🏷️ **الخطوة 3 من 3:** أخيرًا، اكتب **الهاشتاغات** (مثال: #متجر #عرض #خصم):');
       }
 
       if (wizard.step === 'awaiting_tags') {
         wizard.manualTags = input;
-        userWizardState.delete(userId);
+        clearWizardState(userId);
 
         const fullPost = `${wizard.manualTitle}\n\n${wizard.manualDesc}\n\n${wizard.manualTags}`;
 
-        userDrafts.set(userId, {
+        setDraft(userId, {
           cost: wizard.cost,
           mediaFiles: wizard.mediaFiles,
           rawText: fullPost,
@@ -320,7 +353,7 @@ ${connectedAccs}
   // 🚀 Live Publishing to Meta Graph API
   bot.action('confirm_publish', async (ctx) => {
     await ctx.answerCbQuery();
-    const draft = userDrafts.get(ctx.from.id);
+    const draft = getDraft(ctx.from.id);
     if (!draft) return ctx.reply('⚠️ لا يوجد مسودة منشور بانتظار التأكيد حالياً.');
 
     const user = dbService.getUser(ctx.from.id);
@@ -352,7 +385,7 @@ ${connectedAccs}
     // Deduct quota balance
     dbService.deductBalance(ctx.from.id, draft.cost);
     const updatedUser = dbService.getUser(ctx.from.id);
-    userDrafts.delete(ctx.from.id);
+    clearDraft(ctx.from.id);
 
     await ctx.telegram.deleteMessage(ctx.chat.id, publishingMsg.message_id).catch(() => {});
 
@@ -382,7 +415,7 @@ ${connectedAccs}
       return ctx.reply('⚠️ ميزة إعادة التوليد بالذكاء الاصطناعي متاحة لمشتركي باقة **Pro** و **Enterprise** فقط.');
     }
 
-    const draft = userDrafts.get(ctx.from.id);
+    const draft = getDraft(ctx.from.id);
     if (!draft) return ctx.reply('⚠️ انتهت جلسة مسودة المنشور الحالية.');
 
     const waitMsg = await ctx.reply('🔄 جاري إعادة صياغة وتحسين المنشور بواسطة الذكاء الاصطناعي... ⏳');
@@ -390,7 +423,7 @@ ${connectedAccs}
     try {
       const rephrased = await aiService.rephrasePost(draft.rawText);
       draft.rawText = rephrased;
-      userDrafts.set(ctx.from.id, draft);
+      setDraft(ctx.from.id, draft);
 
       await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
       await ctx.reply('✨ تم إعادة الصياغة بنجاح! إليك المعاينة الجديدة:');
@@ -403,8 +436,8 @@ ${connectedAccs}
 
   bot.action('cancel_post', async (ctx) => {
     await ctx.answerCbQuery();
-    userDrafts.delete(ctx.from.id);
-    userWizardState.delete(ctx.from.id);
+    clearDraft(ctx.from.id);
+    clearWizardState(ctx.from.id);
     await ctx.reply('❌ تم إلغاء المنشور بنجاح ولم يتم خصم أي رصيد من حسابك.');
   });
 
@@ -485,16 +518,16 @@ async function processPhotoGroup(bot, groupData) {
 
 // Creation Flow Chooser
 async function handleCreationFlowChoice(ctx, user, mediaFiles, cost, caption) {
-  userWizardState.set(user.id, {
+  setWizardState(user.id, {
     mediaFiles,
     cost,
     caption,
   });
 
   if (user.subscription === 'starter' || user.subscription === 'free') {
-    const state = userWizardState.get(user.id);
+    const state = getWizardState(user.id);
     state.step = 'awaiting_title';
-    userWizardState.set(user.id, state);
+    setWizardState(user.id, state);
 
     return ctx.reply(
       `✍️ **الكتابة والتحكم اليدوي بالمنشور (باقة Starter):**\n\n**الخطوة 1 من 3:** يرجى كتابة **عنوان المنشور الرئيسي**:`
@@ -516,7 +549,7 @@ async function handleCreationFlowChoice(ctx, user, mediaFiles, cost, caption) {
 
 // Send Interactive Preview Card
 async function sendInteractivePreviewCard(ctx, userId) {
-  const draft = userDrafts.get(userId);
+  const draft = getDraft(userId);
   if (!draft) return;
 
   const user = dbService.getUser(userId);

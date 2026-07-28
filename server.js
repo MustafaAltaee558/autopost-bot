@@ -53,11 +53,12 @@ app.get('/auth/facebook', (req, res) => {
   const host = req.get('host');
   const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
   const redirectUri = `${protocol}://${host}/auth/facebook/callback`;
-  const scope = 'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish';
+  const scope = 'pages_show_list,pages_read_engagement,pages_manage_posts';
+  const state = `${chatId}_facebook`;
 
-  const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${chatId}`;
+  const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${state}`;
 
-  return res.redirect(authUrl);
+  return res.send(renderOAuthLandingPage(authUrl, 'فيسبوك'));
 });
 
 app.get('/auth/instagram', (req, res) => {
@@ -74,20 +75,25 @@ app.get('/auth/instagram', (req, res) => {
   const host = req.get('host');
   const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
   const redirectUri = `${protocol}://${host}/auth/facebook/callback`;
-  const scope = 'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish';
+  const scope = 'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement,pages_manage_posts';
+  const state = `${chatId}_instagram`;
 
-  const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${chatId}`;
+  const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${state}`;
 
-  return res.redirect(authUrl);
+  return res.send(renderOAuthLandingPage(authUrl, 'إنستغرام'));
 });
 
 app.get('/auth/facebook/callback', async (req, res) => {
-  const { code, state: chatId, error, error_description } = req.query;
+  const { code, state: rawState, error, error_description } = req.query;
 
   if (error || !code) {
     console.error('Facebook OAuth Error:', error_description || error);
     return res.send(renderOAuthResultPage(false, `إلغاء أو خطأ في التفويض: ${error_description || 'لم يتم استلام الكود'}`));
   }
+
+  const parts = (rawState || '').split('_');
+  const chatId = parts[0];
+  const platform = parts[1] || 'facebook';
 
   const appId = process.env.FACEBOOK_APP_ID;
   const appSecret = process.env.FACEBOOK_APP_SECRET;
@@ -119,7 +125,7 @@ app.get('/auth/facebook/callback', async (req, res) => {
     const pagesData = await pagesRes.json();
 
     if (pagesData.error || !pagesData.data || pagesData.data.length === 0) {
-      return res.send(renderOAuthResultPage(false, 'لم يتم العثور على صفحات فيسبوك تديرها هذا الحساب.'));
+      return res.send(renderOAuthResultPage(false, 'لم يتم العثور على صفحات فيسبوك أو إنستغرام تديرها بهذا الحساب.'));
     }
 
     const connectedPages = [];
@@ -161,15 +167,18 @@ app.get('/auth/facebook/callback', async (req, res) => {
     dbService.connectPlatform(chatId, 'facebook');
     dbService.connectPlatform(chatId, 'instagram');
 
+    const isIg = platform === 'instagram';
+    const platformTitle = isIg ? 'إنستغرام' : 'فيسبوك';
+
     // Notify user in Telegram in real-time
     if (botInstance && chatId) {
-      const telegramNotice = `🎉 **تم ربط الحسابات والصفحات بنجاح!**\n\n الصفحات المربوطة:\n${connectedPages.map(p => `• **${p}**`).join('\n')}\n\nيمكنك الآن البدء بالنشر المباشر أونلاين على صفحتك من داخل البوت! 🚀`;
+      const telegramNotice = `🎉 **تم ربط حساب وصفحة ${platformTitle} بنجاح!**\n\n الصفحات المربوطة:\n${connectedPages.map(p => `• **${p}**`).join('\n')}\n\nيمكنك الآن البدء بالنشر المباشر أونلاين على صفحتك من داخل البوت! 🚀`;
       botInstance.telegram.sendMessage(chatId, telegramNotice, { parse_mode: 'Markdown' }).catch(err => {
         console.warn('Could not send Telegram OAuth notice:', err.message);
       });
     }
 
-    return res.send(renderOAuthResultPage(true, `تم ربط الصفحات التالية بنجاح: ${connectedPages.join(', ')}`));
+    return res.send(renderOAuthResultPage(true, `تم ربط صفحات وحسابات ${platformTitle} التالية بنجاح: ${connectedPages.join(', ')}`, isIg));
   } catch (err) {
     console.error('Facebook Callback Handling Error:', err);
     return res.send(renderOAuthResultPage(false, `حدث خطأ أثناء إكمال التفويض: ${err.message}`));
@@ -297,13 +306,98 @@ if (require.main === module || (!process.env.VERCEL && process.env.NODE_ENV !== 
 // -------------------------------------------------------------
 // HTML Rendering Functions
 // -------------------------------------------------------------
-function renderOAuthResultPage(success, detailMessage = '') {
+function renderOAuthLandingPage(authUrl, platformName) {
+  const isIg = platformName === 'إنستغرام';
+  const cleanUrl = authUrl.replace(/'/g, "\\'");
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${success ? 'تم ربط الحساب بنجاح' : 'خطأ في الربط'}</title>
+  <title>ربط حساب ${platformName} - AutoPost</title>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: 'Tajawal', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      margin: 0;
+    }
+    .card {
+      background: rgba(30, 41, 59, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 24px;
+      padding: 36px 28px;
+      text-align: center;
+      max-width: 440px;
+      width: 100%;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(12px);
+    }
+    .icon { font-size: 56px; margin-bottom: 16px; }
+    h1 { color: #f8fafc; font-size: 22px; font-weight: 700; margin-bottom: 12px; }
+    p { color: #94a3b8; font-size: 14px; line-height: 1.6; margin-bottom: 24px; }
+    .badge {
+      background: rgba(56, 189, 248, 0.1);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      display: inline-block;
+      margin-bottom: 20px;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      background: ${isIg ? 'linear-gradient(135deg, #e1306c, #c13584, #833ab4)' : 'linear-gradient(135deg, #1877f2, #0056b3)'};
+      color: #ffffff;
+      padding: 16px 20px;
+      border-radius: 14px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 16px;
+      box-sizing: border-box;
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+      transition: transform 0.2s, opacity 0.2s;
+    }
+    .btn:hover { transform: translateY(-2px); opacity: 0.95; }
+    .footer-tip { margin-top: 20px; font-size: 12px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${isIg ? '📸' : '📘'}</div>
+    <div class="badge">🔒 آمن ومشفّر 100%</div>
+    <h1>تفويض وربط حساب ${platformName}</h1>
+    <p>لضمان حماية حسابك وتجاوز اختبار الآلي (reCAPTCHA)، اضغط الزر أدناه لمتابعة تسجيل الدخول عبر متصفحك الخارجي (Chrome / Safari):</p>
+    <a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="btn">
+      🚀 متابعة تسجيل الدخول على ${platformName}
+    </a>
+    <p class="footer-tip">نصيحة: يمكنك أيضاً الضغط على القائمة العلوية للتليجرام (⋮) واختيار "Open in Browser".</p>
+  </div>
+  <script>
+    if (!navigator.userAgent.includes('Telegram')) {
+      setTimeout(() => { window.location.href = '${cleanUrl}'; }, 300);
+    }
+  </script>
+</body>
+</html>`;
+}
+
+function renderOAuthResultPage(success, detailMessage = '', isIg = false) {
+  const platformTitle = isIg ? 'إنستغرام' : 'فيسبوك';
+  return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${success ? `تم ربط ${platformTitle} بنجاح` : 'خطأ في الربط'}</title>
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     body {
@@ -330,27 +424,19 @@ function renderOAuthResultPage(success, detailMessage = '') {
     .icon { font-size: 64px; margin-bottom: 20px; }
     h1 { color: ${success ? '#34d399' : '#fca5a5'}; font-size: 24px; margin-bottom: 12px; }
     p { color: #cbd5e1; font-size: 15px; line-height: 1.6; margin-bottom: 24px; }
-    .btn {
-      display: inline-block;
-      background: linear-gradient(135deg, #0284c7, #38bdf8);
-      color: #fff;
-      padding: 12px 28px;
-      border-radius: 10px;
-      text-decoration: none;
-      font-weight: bold;
-    }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="icon">${success ? '🎉' : '⚠️'}</div>
-    <h1>${success ? 'تم ربط صفحتك وحسابك بنجاح!' : 'لم يكتمل الربط'}</h1>
+    <div class="icon">${success ? (isIg ? '📸' : '🎉') : '⚠️'}</div>
+    <h1>${success ? `تم ربط ${platformTitle} بنجاح!` : 'لم يكتمل الربط'}</h1>
     <p>${detailMessage}</p>
     <p style="font-size: 13px; color: #94a3b8">يمكنك إغلاق هذه الصفحة الآن والعودة لتطبيق البوت للنشر المباشر 🚀</p>
   </div>
 </body>
 </html>`;
 }
+
 
 function renderLoginPage(errorMessage = '') {
   return `<!DOCTYPE html>

@@ -8,8 +8,21 @@
   ],
   "routes": [
     {
+      "src": "/bot-webhook",
+      "dest": "server.js"
+    },
+    {
+      "src": "/auth/(.*)",
+      "dest": "server.js"
+    },
+    {
+      "src": "/admin(.*)",
+      "dest": "server.js"
+    },
+    {
       "src": "/(.*)",
       "dest": "server.js"
     }
   ]
 }
+
