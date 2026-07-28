@@ -253,18 +253,38 @@ app.post('/admin/api/update-balance', checkAdminAuth, (req, res) => {
 });
 
 // Health check endpoint
+app.get('/', (req, res) => {
+  res.send("AutoPost Server is Running on Vercel Successfully!");
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Start Telegraf Bot
+// Start Telegraf Bot & Register Webhook
 let botInstance = null;
 if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_TOKEN !== 'your_bot_token') {
   try {
     botInstance = createBot(process.env.TELEGRAM_BOT_TOKEN);
-    botInstance.launch()
-      .then(() => console.log('🤖 تم تشغيل بوت AutoPost بنجاح! (Long Polling)'))
-      .catch(err => console.error('❌ خطأ أثناء تشغيل البوت:', err));
+
+    // Register Webhook POST route middleware in Express
+    app.use(botInstance.webhookCallback('/bot-webhook'));
+
+    let SERVER_URL = process.env.SERVER_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+    if (SERVER_URL && !SERVER_URL.startsWith('http://') && !SERVER_URL.startsWith('https://')) {
+      SERVER_URL = `https://${SERVER_URL}`;
+    }
+
+    if (SERVER_URL) {
+      const webhookUrl = `${SERVER_URL}/bot-webhook`;
+      botInstance.telegram.setWebhook(webhookUrl)
+        .then(() => console.log(`🤖 تم تسجيل Webhook بنجاح مع التليجرام: ${webhookUrl}`))
+        .catch(err => console.error('❌ خطأ أثناء ضبط Webhook:', err.message));
+    } else {
+      botInstance.launch()
+        .then(() => console.log('🤖 تم تشغيل بوت AutoPost بنجاح! (Long Polling)'))
+        .catch(err => console.error('❌ خطأ أثناء تشغيل البوت:', err));
+    }
 
     process.once('SIGINT', () => botInstance.stop('SIGINT'));
     process.once('SIGTERM', () => botInstance.stop('SIGTERM'));
@@ -633,3 +653,5 @@ function renderDashboardPage(users = []) {
 </body>
 </html>`;
 }
+
+module.exports = app;
