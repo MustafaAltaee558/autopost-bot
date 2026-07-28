@@ -50,6 +50,16 @@ app.use('/auth', (req, res, next) => {
 // -------------------------------------------------------------
 // Facebook / Meta OAuth 2.0 Integration Routes
 // -------------------------------------------------------------
+const META_SCOPES = [
+  'public_profile',
+  'email',
+  'pages_show_list',
+  'pages_manage_posts',
+  'instagram_business_basic',
+  'instagram_business_manage_messages',
+  'instagram_business_manage_comments'
+].join(',');
+
 app.get('/auth/facebook', (req, res) => {
   const { chatId } = req.query;
   if (!chatId) {
@@ -64,10 +74,9 @@ app.get('/auth/facebook', (req, res) => {
   const host = req.get('host');
   const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
   const redirectUri = `${protocol}://${host}/auth/facebook/callback`;
-  const scope = 'pages_show_list,pages_read_engagement,pages_manage_posts';
   const state = `${chatId}_facebook`;
 
-  const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${state}`;
+  const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(META_SCOPES)}&state=${state}`;
 
   return res.send(renderOAuthLandingPage(authUrl, 'فيسبوك'));
 });
@@ -85,41 +94,46 @@ app.get('/auth/instagram', (req, res) => {
 
   const host = req.get('host');
   const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-  const redirectUri = `${protocol}://${host}/auth/facebook/callback`;
-  const scope = 'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement';
+  const redirectUri = `${protocol}://${host}/auth/instagram/callback`;
   const state = `${chatId}_instagram`;
 
-  const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${state}`;
+  const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(META_SCOPES)}&state=${state}`;
 
   return res.send(renderOAuthLandingPage(authUrl, 'إنستغرام'));
 });
 
-app.get('/auth/facebook/callback', async (req, res) => {
-  const { code, state: rawState, error, error_description } = req.query;
-
-  if (error || !code) {
-    console.error('Facebook OAuth Error:', error_description || error);
-    return res.send(renderOAuthResultPage(false, `إلغاء أو خطأ في التفويض: ${error_description || 'لم يتم استلام الكود'}`));
-  }
-
-  const parts = (rawState || '').split('_');
-  const chatId = parts[0];
-  const platform = parts[1] || 'facebook';
-
-  const appId = process.env.FACEBOOK_APP_ID;
-  const appSecret = process.env.FACEBOOK_APP_SECRET;
-  const host = req.get('host');
-  const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-  const redirectUri = `${protocol}://${host}/auth/facebook/callback`;
-
+app.get(['/auth/facebook/callback', '/auth/instagram/callback'], async (req, res) => {
   try {
+    const { code, state: rawState, error, error_description } = req.query;
+
+    if (error || !code) {
+      console.error('❌ Meta OAuth Auth Error:', error_description || error || 'No authorization code');
+      return res.send(renderOAuthResultPage(false, `إلغاء أو خطأ في التفويض: ${error_description || 'لم يتم استلام الكود'}`));
+    }
+
+    const parts = (rawState || '').split('_');
+    const chatId = parts[0];
+    const platform = parts[1] || (req.path.includes('instagram') ? 'instagram' : 'facebook');
+
+    if (!chatId) {
+      console.error('❌ State parameter missing or invalid:', rawState);
+      return res.send(renderOAuthResultPage(false, 'معرف المستخدم (chatId) غير متوفر في الاستجابة.'));
+    }
+
+    const appId = process.env.FACEBOOK_APP_ID;
+    const appSecret = process.env.FACEBOOK_APP_SECRET;
+    const host = req.get('host');
+    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    const redirectUri = `${protocol}://${host}${req.path}`;
+
     // 1. Exchange authorization code for Short-Lived Access Token
     const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`;
     const tokenRes = await fetch(tokenUrl);
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
-      throw new Error(tokenData.error.message);
+      console.error('❌ Meta Token Exchange Error Details:', JSON.stringify(tokenData.error, null, 2));
+      throw new Error(tokenData.error.message || 'فشل الحصول على Access Token');
     }
 
     const shortLivedToken = tokenData.access_token;
@@ -128,21 +142,32 @@ app.get('/auth/facebook/callback', async (req, res) => {
     const longLivedUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${shortLivedToken}`;
     const longLivedRes = await fetch(longLivedUrl);
     const longLivedData = await longLivedRes.json();
+
+    if (longLivedData.error) {
+      console.warn('⚠️ Meta Long-Lived Token Exchange Warning:', JSON.stringify(longLivedData.error, null, 2));
+    }
+
     const userAccessToken = longLivedData.access_token || shortLivedToken;
 
-    // 3. Fetch User's Facebook Pages
+    // 3. Fetch User's Facebook Pages & Instagram Accounts
     const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}`;
     const pagesRes = await fetch(pagesUrl);
     const pagesData = await pagesRes.json();
 
-    if (pagesData.error || !pagesData.data || pagesData.data.length === 0) {
+    if (pagesData.error) {
+      console.error('❌ Meta Pages Fetch Error Details:', JSON.stringify(pagesData.error, null, 2));
+      return res.send(renderOAuthResultPage(false, `خطأ في جلب الصفحات: ${pagesData.error.message}`));
+    }
+
+    if (!pagesData.data || pagesData.data.length === 0) {
+      console.warn('⚠️ No Facebook/Instagram pages returned for user:', chatId);
       return res.send(renderOAuthResultPage(false, 'لم يتم العثور على صفحات فيسبوك أو إنستغرام تديرها بهذا الحساب.'));
     }
 
     const connectedPages = [];
 
     for (const page of pagesData.data) {
-      // Save Facebook Page
+      // Save Facebook Page to Firestore / Local DB
       const fbAcc = {
         platform: 'facebook',
         pageId: page.id,
@@ -174,24 +199,23 @@ app.get('/auth/facebook/callback', async (req, res) => {
       }
     }
 
-    // Connect platform in db user
+    // Connect platforms in DB user
     dbService.connectPlatform(chatId, 'facebook');
     dbService.connectPlatform(chatId, 'instagram');
 
-    const isIg = platform === 'instagram';
-    const platformTitle = isIg ? 'إنستغرام' : 'فيسبوك';
-
-    // Notify user in Telegram in real-time
+    // Send instant Telegram notification to the user
     if (botInstance && chatId) {
-      const telegramNotice = `🎉 **تم ربط حساب وصفحة ${platformTitle} بنجاح!**\n\n الصفحات المربوطة:\n${connectedPages.map(p => `• **${p}**`).join('\n')}\n\nيمكنك الآن البدء بالنشر المباشر أونلاين على صفحتك من داخل البوت! 🚀`;
-      botInstance.telegram.sendMessage(chatId, telegramNotice, { parse_mode: 'Markdown' }).catch(err => {
-        console.warn('Could not send Telegram OAuth notice:', err.message);
-      });
+      try {
+        await botInstance.telegram.sendMessage(chatId, "✅ تم ربط حسابك بنجاح! يمكنك الآن النشر تلقائياً.");
+      } catch (tgErr) {
+        console.error('❌ Error sending Telegram notification:', tgErr.message);
+      }
     }
 
-    return res.send(renderOAuthResultPage(true, `تم ربط صفحات وحسابات ${platformTitle} التالية بنجاح: ${connectedPages.join(', ')}`, isIg));
+    // Return clean elegant HTML page
+    return res.send(renderOAuthResultPage(true, "تم الربط بنجاح! يمكنك إغلاق هذه الصفحة والعودة للتليجرام."));
   } catch (err) {
-    console.error('Facebook Callback Handling Error:', err);
+    console.error('❌ Callback Handling Exception:', err);
     return res.send(renderOAuthResultPage(false, `حدث خطأ أثناء إكمال التفويض: ${err.message}`));
   }
 });
